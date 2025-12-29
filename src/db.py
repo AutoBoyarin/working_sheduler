@@ -21,11 +21,12 @@ def get_conn(cfg: DbConfig) -> psycopg.Connection:
 def init_db(cfg: DbConfig) -> None:
     ddl_runs = (
         """
-        CREATE TABLE IF NOT EXISTS moderation_runs (
-            id BIGSERIAL PRIMARY KEY,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            acceptable BOOLEAN NOT NULL,
-            source_id TEXT,
+        CREATE TABLE IF NOT EXISTS moderation_runs
+        (
+            id           BIGSERIAL PRIMARY KEY,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            acceptable   BOOLEAN     NOT NULL,
+            source_id    TEXT,
             verdict_json JSONB
         );
         """
@@ -33,12 +34,13 @@ def init_db(cfg: DbConfig) -> None:
 
     ddl_detections = (
         """
-        CREATE TABLE IF NOT EXISTS moderation_detections (
-            id BIGSERIAL PRIMARY KEY,
-            run_id BIGINT NOT NULL REFERENCES moderation_runs(id) ON DELETE CASCADE,
-            type TEXT,
-            category TEXT,
-            value TEXT,
+        CREATE TABLE IF NOT EXISTS moderation_detections
+        (
+            id         BIGSERIAL PRIMARY KEY,
+            run_id     BIGINT NOT NULL REFERENCES moderation_runs (id) ON DELETE CASCADE,
+            type       TEXT,
+            category   TEXT,
+            value      TEXT,
             image_path TEXT,
             object_key TEXT
         );
@@ -47,19 +49,20 @@ def init_db(cfg: DbConfig) -> None:
 
     ddl_results = (
         """
-        CREATE TABLE IF NOT EXISTS moderation_results (
-            id BIGSERIAL PRIMARY KEY,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            ad_id TEXT NOT NULL,
-            run_id BIGINT NOT NULL REFERENCES moderation_runs(id) ON DELETE CASCADE,
-            acceptable BOOLEAN NOT NULL,
-            text_acceptable BOOLEAN NOT NULL,
-            image_acceptable BOOLEAN NOT NULL,
-            total_detections INT NOT NULL DEFAULT 0,
-            text_detections INT NOT NULL DEFAULT 0,
-            image_detections INT NOT NULL DEFAULT 0,
-            text_summary JSONB,
-            image_summary JSONB
+        CREATE TABLE IF NOT EXISTS moderation_results
+        (
+            id               BIGSERIAL PRIMARY KEY,
+            created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            ad_id            TEXT        NOT NULL,
+            run_id           BIGINT      NOT NULL REFERENCES moderation_runs (id) ON DELETE CASCADE,
+            acceptable       BOOLEAN     NOT NULL,
+            text_acceptable  BOOLEAN     NOT NULL,
+            image_acceptable BOOLEAN     NOT NULL,
+            total_detections INT         NOT NULL DEFAULT 0,
+            text_detections  INT         NOT NULL DEFAULT 0,
+            image_detections INT         NOT NULL DEFAULT 0,
+            text_summary     JSONB,
+            image_summary    JSONB
         );
         """
     )
@@ -83,25 +86,25 @@ def health_check(cfg: DbConfig) -> bool:
         return False
 
 
-def fetch_paid_ads(conn: psycopg.Connection, limit: Optional[int] = None) -> List[Tuple[str, str, str]]:
-    sql = (
-        """
-        select au.id, au.description, ai.image_url
-        from advertisement_auto au
-        inner join public.advertisement_images ai on au.id = ai.advertisement_id
-        where au.status = 'PAID'
-        order by au.created_at asc
-        """
-    )
-    if limit is not None:
-        sql += " limit %s"
-        with conn.cursor() as cur:
-            cur.execute(sql, (limit,))
-            return [(str(r[0]), r[1], r[2]) for r in cur.fetchall()]
-    else:
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            return [(str(r[0]), r[1], r[2]) for r in cur.fetchall()]
+def fetch_paid_ads(
+    conn: psycopg.Connection,
+    limit: int,
+) -> List[Tuple[str, str, str]]:
+    sql = """
+          select au.id, au.description, ai.image_url
+          from (select id, description
+                from advertisement_auto
+                where status = 'PAID'
+                order by created_at asc
+                limit %s) au
+                   join advertisement_images ai
+                        on au.id = ai.advertisement_id
+          order by au.id \
+          """
+
+    with conn.cursor() as cur:
+        cur.execute(sql, (limit,))
+        return [(str(r[0]), r[1], r[2]) for r in cur.fetchall()]
 
 
 def group_ads(rows: Iterable[Tuple[str, str, str]]) -> Dict[str, Dict[str, object]]:
@@ -125,7 +128,8 @@ def replace_advertisement_images(conn: psycopg.Connection, ad_id: str, image_url
         # Удаляем старые ссылки
         cur.execute(
             """
-            DELETE FROM public.advertisement_images
+            DELETE
+            FROM public.advertisement_images
             WHERE advertisement_id = %s
             """,
             (ad_id,),
@@ -186,10 +190,10 @@ def save_detections(conn: psycopg.Connection, run_id: int, items: List[dict]) ->
 
 
 def save_result_summary(
-    conn: psycopg.Connection,
-    run_id: int,
-    ad_id: str,
-    detections: List[dict],
+        conn: psycopg.Connection,
+        run_id: int,
+        ad_id: str,
+        detections: List[dict],
 ) -> int:
     """Сохраняет агрегированный результат модерации в таблицу moderation_results.
 
@@ -236,11 +240,10 @@ def save_result_summary(
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO moderation_results (
-                ad_id, run_id, acceptable, text_acceptable, image_acceptable,
-                total_detections, text_detections, image_detections,
-                text_summary, image_summary
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO moderation_results (ad_id, run_id, acceptable, text_acceptable, image_acceptable,
+                                            total_detections, text_detections, image_detections,
+                                            text_summary, image_summary)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -271,9 +274,10 @@ def commit_ad_moderated(conn: psycopg.Connection, ad_id: str) -> int:
         cur.execute(
             """
             UPDATE advertisement_auto
-            SET status = 'MODERATED',
+            SET status       = 'MODERATED',
                 moderated_at = NOW()
-            WHERE id = %s AND status = 'PAID'
+            WHERE id = %s
+              AND status = 'PAID'
             """,
             (ad_id,),
         )
@@ -291,9 +295,10 @@ def commit_ad_rejected(conn: psycopg.Connection, ad_id: str) -> int:
         cur.execute(
             """
             UPDATE advertisement_auto
-            SET status = 'REJECTED',
+            SET status       = 'REJECTED',
                 moderated_at = NOW()
-            WHERE id = %s AND status = 'PAID'
+            WHERE id = %s
+              AND status = 'PAID'
             """,
             (ad_id,),
         )
