@@ -7,7 +7,15 @@ from .text_moderator.text_moderator import moderate_text
 from .image_moderator.image_moderator import moderate_images
 
 from .config import load_config
-from .db import init_db, get_conn, fetch_paid_ads, group_ads, save_run, save_detections
+from .db import (
+    init_db,
+    get_conn,
+    fetch_paid_ads,
+    group_ads,
+    save_run,
+    save_detections,
+    save_result_summary,
+)
 from .storage import _make_client, ensure_bucket, upload_file
 from .utils import download_files
 
@@ -20,6 +28,14 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 def main():
     cfg = load_config()
+
+    # По флагу из .env очищаем выходную папку перед запуском
+    if getattr(cfg, "clean_output_on_start", False):
+        try:
+            shutil.rmtree(OUTPUT_FOLDER, ignore_errors=True)
+        except Exception:
+            pass
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
     # Инициализация БД и MinIO
     init_db(cfg.db)
@@ -72,6 +88,8 @@ def main():
 
             run_id = save_run(conn, verdict["acceptable"], ad_id, verdict)
             save_detections(conn, run_id, verdict["detections"])
+            # Сводная запись по результатам модерации (отдельная таблица)
+            save_result_summary(conn, run_id, ad_id, verdict["detections"])
 
             # Очистка временных файлов
             try:

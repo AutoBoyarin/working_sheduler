@@ -45,10 +45,30 @@ def init_db(cfg: DbConfig) -> None:
         """
     )
 
+    ddl_results = (
+        """
+        CREATE TABLE IF NOT EXISTS moderation_results (
+            id BIGSERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            ad_id TEXT NOT NULL,
+            run_id BIGINT NOT NULL REFERENCES moderation_runs(id) ON DELETE CASCADE,
+            acceptable BOOLEAN NOT NULL,
+            text_acceptable BOOLEAN NOT NULL,
+            image_acceptable BOOLEAN NOT NULL,
+            total_detections INT NOT NULL DEFAULT 0,
+            text_detections INT NOT NULL DEFAULT 0,
+            image_detections INT NOT NULL DEFAULT 0,
+            text_summary JSONB,
+            image_summary JSONB
+        );
+        """
+    )
+
     with get_conn(cfg) as conn:
         with conn.cursor() as cur:
             cur.execute(ddl_runs)
             cur.execute(ddl_detections)
+            cur.execute(ddl_results)
         conn.commit()
 
 
@@ -135,3 +155,79 @@ def save_detections(conn: psycopg.Connection, run_id: int, items: List[dict]) ->
             rows,
         )
     conn.commit()
+
+
+def save_result_summary(
+    conn: psycopg.Connection,
+    run_id: int,
+    ad_id: str,
+    detections: List[dict],
+) -> int:
+    """Сохраняет агрегированный результат модерации в таблицу moderation_results.
+
+    Расчёт:
+    - text_detections: количество детекций с type == 'text'
+    - image_detections: количество детекций с type == 'image'
+    - acceptable = (text_detections == 0 and image_detections == 0)
+    - text_summary: JSON по категориям с уникальными values
+    - image_summary: JSON по категориям с перечнем изображений/ключей
+    """
+    text_count = 0
+    image_count = 0
+
+    text_summary: Dict[str, Dict[str, object]] = {}
+    image_summary: Dict[str, Dict[str, object]] = {}
+
+    for d in detections or []:
+        d_type = d.get("type")
+        category = d.get("category") or "unknown"
+
+        if d_type == "text":
+            text_count += 1
+            entry = text_summary.setdefault(category, {"values": set(), "count": 0})
+            val = d.get("value")
+            if val:
+                entry["values"].add(str(val))
+            entry["count"] = int(entry.get("count", 0)) + 1
+        elif d_type == "image":
+            image_count += 1
+            entry = image_summary.setdefault(category, {"items": [], "count": 0})
+            item = {"image": d.get("image"), "object_key": d.get("object_key")}
+            entry["items"].append(item)
+            entry["count"] = int(entry.get("count", 0)) + 1
+
+    # Преобразуем множества в списки для JSON
+    for cat, e in text_summary.items():
+        if isinstance(e.get("values"), set):
+            e["values"] = sorted(list(e["values"]))
+
+    acceptable = (text_count == 0 and image_count == 0)
+    text_acceptable = (text_count == 0)
+    image_acceptable = (image_count == 0)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO moderation_results (
+                ad_id, run_id, acceptable, text_acceptable, image_acceptable,
+                total_detections, text_detections, image_detections,
+                text_summary, image_summary
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                str(ad_id),
+                run_id,
+                acceptable,
+                text_acceptable,
+                image_acceptable,
+                int(text_count + image_count),
+                int(text_count),
+                int(image_count),
+                json.dumps(text_summary, ensure_ascii=False),
+                json.dumps(image_summary, ensure_ascii=False),
+            ),
+        )
+        res_id = cur.fetchone()[0]
+    conn.commit()
+    return int(res_id)
