@@ -9,6 +9,7 @@ from .text_moderator.text_moderator import moderate_text
 from .image_moderator.image_moderator import moderate_images
 
 from .config import load_config
+from .logging_setup import setup_logging
 from .db import (
     init_db,
     get_conn,
@@ -163,6 +164,12 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config()
+    # Инициализация логирования до любой логики
+    try:
+        setup_logging(cfg.log)
+    except Exception:
+        # В крайнем случае не падаем из‑за логгера
+        pass
 
     # Приоритет: CLI (-i) > .env (SCHEDULER_INTERVAL_MINUTES) > 0 по умолчанию
     interval_minutes = (

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
+import os
 from urllib.parse import urlparse
 
 from minio import Minio
@@ -44,8 +46,49 @@ def ensure_bucket(client: Minio, bucket: str, public: bool = False) -> None:
 
 
 def upload_file(client: Minio, bucket: str, local_path: str, object_name: str) -> str:
-    client.fput_object(bucket, object_name, local_path)
-    return object_name
+    """Загрузка файла в S3/MinIO с подробным логированием.
+
+    Возвращает object_name при успехе, пробрасывает исключение при ошибке.
+    """
+    logger = logging.getLogger(__name__)
+    try:
+        size = None
+        try:
+            size = os.path.getsize(local_path)
+        except Exception:
+            # размер не критичен для загрузки
+            pass
+
+        logger.info(
+            "[S3][UPLOAD][START] bucket=%s key=%s path=%s size=%s",
+            bucket,
+            object_name,
+            local_path,
+            size,
+        )
+        client.fput_object(bucket, object_name, local_path)
+        logger.info(
+            "[S3][UPLOAD][DONE] bucket=%s key=%s path=%s", bucket, object_name, local_path
+        )
+        return object_name
+    except S3Error as e:
+        logger.error(
+            "[S3][UPLOAD][ERROR] bucket=%s key=%s path=%s code=%s message=%s",
+            bucket,
+            object_name,
+            local_path,
+            getattr(e, "code", None),
+            str(e),
+        )
+        raise
+    except Exception as e:
+        logger.exception(
+            "[S3][UPLOAD][ERROR] bucket=%s key=%s path=%s unexpected error",
+            bucket,
+            object_name,
+            local_path,
+        )
+        raise
 
 
 def get_presigned_url(client: Minio, bucket: str, object_name: str, expires: dt.timedelta = dt.timedelta(hours=1)) -> str:

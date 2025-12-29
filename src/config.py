@@ -51,6 +51,7 @@ class MinioConfig:
 class AppConfig:
     db: DbConfig
     minio: MinioConfig
+    log: "LogConfig"
     batch_limit: int = 50
     clean_output_on_start: bool = False
     commit_results: bool = False
@@ -59,6 +60,16 @@ class AppConfig:
     # Пути
     model_path: str = ""
     output_folder: str = ""
+
+
+@dataclass
+class LogConfig:
+    level: str = "INFO"
+    format: str = "text"  # text|json
+    to_file: bool = False
+    file: str = "logs/app.log"
+    max_bytes: int = 5 * 1024 * 1024
+    backup_count: int = 3
 
 
 def load_config() -> AppConfig:
@@ -120,6 +131,29 @@ def load_config() -> AppConfig:
         client_public_access=minio_public,
     )
 
+    # Logging
+    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    log_format = os.environ.get("LOG_FORMAT", "text").lower()
+    log_to_file = _str_to_bool(os.environ.get("LOG_TO_FILE"), False)
+    log_file = os.environ.get("LOG_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "app.log"))
+    try:
+        log_max_bytes = int(os.environ.get("LOG_MAX_BYTES", str(5 * 1024 * 1024)))
+    except ValueError:
+        log_max_bytes = 5 * 1024 * 1024
+    try:
+        log_backup_count = int(os.environ.get("LOG_BACKUP_COUNT", "3"))
+    except ValueError:
+        log_backup_count = 3
+
+    log_cfg = LogConfig(
+        level=log_level,
+        format=log_format,
+        to_file=log_to_file,
+        file=log_file,
+        max_bytes=log_max_bytes,
+        backup_count=log_backup_count,
+    )
+
     batch_limit = int(os.environ.get("BATCH_LIMIT", "50"))
     clean_output_on_start = _str_to_bool(os.environ.get("CLEAN_OUTPUT_ON_START"), False)
     commit_results = _str_to_bool(os.environ.get("COMMIT_RESULTS"), False)
@@ -134,6 +168,7 @@ def load_config() -> AppConfig:
     return AppConfig(
         db=db_cfg,
         minio=minio_cfg,
+        log=log_cfg,
         batch_limit=batch_limit,
         clean_output_on_start=clean_output_on_start,
         commit_results=commit_results,
