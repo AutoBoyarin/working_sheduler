@@ -53,6 +53,7 @@ class AppConfig:
     minio: MinioConfig
     batch_limit: int = 50
     clean_output_on_start: bool = False
+    commit_results: bool = False
 
 
 def load_config() -> AppConfig:
@@ -116,10 +117,12 @@ def load_config() -> AppConfig:
 
     batch_limit = int(os.environ.get("BATCH_LIMIT", "50"))
     clean_output_on_start = _str_to_bool(os.environ.get("CLEAN_OUTPUT_ON_START"), False)
+    commit_results = _str_to_bool(os.environ.get("COMMIT_RESULTS"), False)
 
     return AppConfig(
         db=db_cfg,
         minio=minio_cfg,
         batch_limit=batch_limit,
         clean_output_on_start=clean_output_on_start,
+        commit_results=commit_results,
     )

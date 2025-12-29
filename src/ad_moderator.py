@@ -15,6 +15,8 @@ from .db import (
     save_run,
     save_detections,
     save_result_summary,
+    commit_ad_moderated,
+    commit_ad_rejected,
 )
 from .storage import _make_client, ensure_bucket, upload_file
 from .utils import download_files
@@ -89,7 +91,25 @@ def main():
             run_id = save_run(conn, verdict["acceptable"], ad_id, verdict)
             save_detections(conn, run_id, verdict["detections"])
             # Сводная запись по результатам модерации (отдельная таблица)
-            save_result_summary(conn, run_id, ad_id, verdict["detections"])
+            save_result_summary(conn, run_id, ad_id, verdict["detections"]) 
+
+            # По флагу COMMIT_RESULTS: если есть нарушения в тексте — REJECTED, иначе MODERATED
+            if getattr(cfg, "commit_results", False):
+                try:
+                    has_text_violations = any(d.get("type") == "text" for d in verdict["detections"])
+                    if has_text_violations:
+                        updated = commit_ad_rejected(conn, ad_id)
+                        status_str = "REJECTED"
+                    else:
+                        updated = commit_ad_moderated(conn, ad_id)
+                        status_str = "MODERATED"
+
+                    if updated:
+                        print(f"[COMMIT] Ad {ad_id}: status -> {status_str} (rows updated: {updated})")
+                    else:
+                        print(f"[COMMIT] Ad {ad_id}: no rows updated (possibly not in PAID)")
+                except Exception as e:
+                    print(f"[COMMIT][ERROR] Failed to update ad {ad_id}: {e}")
 
             # Очистка временных файлов
             try:

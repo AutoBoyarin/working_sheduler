@@ -231,3 +231,44 @@ def save_result_summary(
         res_id = cur.fetchone()[0]
     conn.commit()
     return int(res_id)
+
+
+def commit_ad_moderated(conn: psycopg.Connection, ad_id: str) -> int:
+    """Переводит объявление в статус MODERATED и проставляет дату `moderated_at`.
+
+    Меняем только те записи, которые ещё в статусе PAID, чтобы избежать лишних апдейтов.
+    Возвращает количество обновлённых строк.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE advertisement_auto
+            SET status = 'MODERATED',
+                moderated_at = NOW()
+            WHERE id = %s AND status = 'PAID'
+            """,
+            (ad_id,),
+        )
+        affected = cur.rowcount or 0
+    conn.commit()
+    return int(affected)
+
+
+def commit_ad_rejected(conn: psycopg.Connection, ad_id: str) -> int:
+    """Переводит объявление в статус REJECTED и проставляет дату `moderated_at`.
+
+    Меняем только записи со статусом PAID. Возвращает количество обновлённых строк.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE advertisement_auto
+            SET status = 'REJECTED',
+                moderated_at = NOW()
+            WHERE id = %s AND status = 'PAID'
+            """,
+            (ad_id,),
+        )
+        affected = cur.rowcount or 0
+    conn.commit()
+    return int(affected)
