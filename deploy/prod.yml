@@ -1,0 +1,41 @@
+apps:
+  scheduler:
+    image: registry.autoboyarin.site/autoboyarin/working-scheduler:${DOCKER_TAG}
+    configs:
+      DB_USER: advertisment
+      DB_HOST: "192.168.0.8"
+      DB_PORT: "5432"
+      DB_NAME: advertisement
+
+      MINIO_CLIENT_PUBLIC_ACESS: 'true'
+      MINIO_INTERNAL_URL: 'https://s3.twcstorage.ru'
+      MINIO_ACCESS_KEY: 'OD5IF898T77G1OCJAQHC'
+      MINIO_SYSTEM_BUCKET: 'cb6a916c-advertisment'
+      MINIO_CLIENT_BUCKET: 'cb6a916c-advertisment-public'
+
+      CLEAN_OUTPUT_ON_START: 'true'
+      COMMIT_RESULTS: 'true'
+      SCHEDULER_INTERVAL_MINUTES: '0'
+    secrets:
+      DB_PASSWORD: "${DB_PASSWORD}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY}"
+    imagePullSecret:
+      registryName: registry.autoboyarin.site
+      registryUser: svc_autoboyarin
+      registryPassword: "${DOCKERHUB_PASSWORD}"
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    service:
+      enabled: false
+    ingress:
+      enabled: false
+    workload:
+      kind: cronjob
+      concurrencyPolicy: Forbid
+      annotations: {}
+      schedule: "*/15 * * * *"
