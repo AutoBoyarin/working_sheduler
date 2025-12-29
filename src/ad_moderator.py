@@ -3,13 +3,13 @@ import json
 import shutil
 from urllib.parse import urlparse
 
-from text_moderator import moderate_text
-from image_moderator import moderate_images
+from .text_moderator.text_moderator import moderate_text
+from .image_moderator.image_moderator import moderate_images
 
-from config import load_config
-from db import init_db, get_conn, fetch_paid_ads, group_ads, save_run, save_detections
-from storage import _make_client, ensure_bucket, upload_file
-from utils import download_files
+from .config import load_config
+from .db import init_db, get_conn, fetch_paid_ads, group_ads, save_run, save_detections
+from .storage import _make_client, ensure_bucket, upload_file
+from .utils import download_files
 
 # ========== ПАРАМЕТРЫ ==========
 OUTPUT_FOLDER = r"C:\Code\Python\working_sheduler\src\image_moderator\output"
@@ -52,6 +52,7 @@ def main():
                     image_paths=local_paths,
                     model_path=MODEL_PATH,
                     output_dir=covered_dir,
+                    ad_id=ad_id,
                 )
                 verdict["detections"].extend(img_dets)
 
