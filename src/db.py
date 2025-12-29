@@ -116,6 +116,34 @@ def group_ads(rows: Iterable[Tuple[str, str, str]]) -> Dict[str, Dict[str, objec
     return grouped
 
 
+def replace_advertisement_images(conn: psycopg.Connection, ad_id: str, image_urls: List[str]) -> int:
+    """Полностью заменяет список изображений объявления в таблице advertisement_images.
+
+    Удаляет старые записи и вставляет новые ссылки. Возвращает количество добавленных записей.
+    """
+    with conn.cursor() as cur:
+        # Удаляем старые ссылки
+        cur.execute(
+            """
+            DELETE FROM public.advertisement_images
+            WHERE advertisement_id = %s
+            """,
+            (ad_id,),
+        )
+
+        if image_urls:
+            rows = [(ad_id, url) for url in image_urls]
+            cur.executemany(
+                """
+                INSERT INTO public.advertisement_images(advertisement_id, image_url)
+                VALUES (%s, %s)
+                """,
+                rows,
+            )
+    conn.commit()
+    return len(image_urls or [])
+
+
 def save_run(conn: psycopg.Connection, acceptable: bool, source_id: str, verdict_json: dict) -> int:
     with conn.cursor() as cur:
         cur.execute(

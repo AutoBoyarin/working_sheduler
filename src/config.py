@@ -54,6 +54,8 @@ class AppConfig:
     batch_limit: int = 50
     clean_output_on_start: bool = False
     commit_results: bool = False
+    # Интервал периодического запуска в минутах (0 — однократно)
+    scheduler_interval_minutes: int = 0
 
 
 def load_config() -> AppConfig:
@@ -118,6 +120,7 @@ def load_config() -> AppConfig:
     batch_limit = int(os.environ.get("BATCH_LIMIT", "50"))
     clean_output_on_start = _str_to_bool(os.environ.get("CLEAN_OUTPUT_ON_START"), False)
     commit_results = _str_to_bool(os.environ.get("COMMIT_RESULTS"), False)
+    scheduler_interval_minutes = int(os.environ.get("SCHEDULER_INTERVAL_MINUTES", "0"))
 
     return AppConfig(
         db=db_cfg,
@@ -125,4 +128,5 @@ def load_config() -> AppConfig:
         batch_limit=batch_limit,
         clean_output_on_start=clean_output_on_start,
         commit_results=commit_results,
+        scheduler_interval_minutes=scheduler_interval_minutes,
     )

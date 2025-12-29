@@ -19,6 +19,17 @@
 2. Создать виртуальное окружение и установить зависимости.
 
 Windows (PowerShell):
+# Лимит пачки объявлений за запуск
+BATCH_LIMIT=50
+
+# Очищать папку вывода при старте (output)
+CLEAN_OUTPUT_ON_START=false
+
+# Коммитить результаты модерации в таблицу объявлений
+COMMIT_RESULTS=false
+
+# Периодический запуск (минуты). 0 — однократный запуск
+SCHEDULER_INTERVAL_MINUTES=0
 ```
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -73,6 +84,7 @@ COMMIT_RESULTS=false
    - установит статус `REJECTED`, если текстовая модерация выявила нарушения (есть детекции с `type="text"`);
    - иначе установит статус `MODERATED`.
    В обоих случаях поле `moderated_at` будет установлено в `NOW()`. По умолчанию — `false`.
+ - `SCHEDULER_INTERVAL_MINUTES` — если значение > 0, приложение будет запускаться в бесконечном цикле с паузой указанного размера (в минутах). `0` — однократный запуск.
 
 
 ## Модель и пути к файлам
@@ -106,6 +118,45 @@ python -m src.ad_moderator
 python src\ad_moderator.py    # Windows
 python src/ad_moderator.py    # Linux/macOS
 ```
+
+## Периодический запуск
+Есть два способа задать периодичность:
+
+1) Через переменную окружения (`.env.local`):
+```
+SCHEDULER_INTERVAL_MINUTES=5
+```
+Запуск без аргументов запустит модерацию каждые 5 минут:
+```
+python -m src.ad_moderator
+```
+
+2) Через CLI-флаг (имеет приоритет над .env):
+```
+python -m src.ad_moderator -i 5
+```
+Если указать `-i`, он переопределит значение из `SCHEDULER_INTERVAL_MINUTES`.
+
+### Запуск в фоне (Windows PowerShell)
+- Одноразовый фоновый процесс в текущей сессии PowerShell:
+```
+Start-Job -ScriptBlock { python -m src.ad_moderator -i 5 }
+```
+Проверить: `Get-Job`; логи можно направить в файлы:
+```
+Start-Process -FilePath python -ArgumentList "-m src.ad_moderator -i 5" -WindowStyle Hidden -RedirectStandardOutput .\moderator.log -RedirectStandardError .\moderator.err -NoNewWindow
+```
+
+- Постоянный запуск через Планировщик заданий (Task Scheduler):
+  - Способ А (через .env):
+    - В `.env.local`: `SCHEDULER_INTERVAL_MINUTES=5`
+    - Program/script: `python`
+    - Arguments: `-m src.ad_moderator`
+    - Start in: путь к корню проекта
+  - Способ Б (через CLI):
+    - Program/script: `python`
+    - Arguments: `-m src.ad_moderator -i 5`
+    - Start in: путь к корню проекта
 
 Что происходит при запуске:
 1. Загружается конфигурация из `.env`/`.env.local`.

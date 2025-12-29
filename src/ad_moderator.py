@@ -1,6 +1,8 @@
 import os
 import json
 import shutil
+import time
+import argparse
 from urllib.parse import urlparse
 
 from .text_moderator.text_moderator import moderate_text
@@ -17,8 +19,9 @@ from .db import (
     save_result_summary,
     commit_ad_moderated,
     commit_ad_rejected,
+    replace_advertisement_images,
 )
-from .storage import _make_client, ensure_bucket, upload_file
+from .storage import _make_client, ensure_bucket, upload_file, build_object_url
 from .utils import download_files
 
 # ========== ПАРАМЕТРЫ ==========
@@ -26,11 +29,7 @@ OUTPUT_FOLDER = r"C:\Code\Python\working_sheduler\src\image_moderator\output"
 MODEL_PATH = r"C:\Code\Python\working_sheduler\src\image_moderator\models\license-plate-finetune-v1l.onnx"
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-
-def main():
-    cfg = load_config()
-
+def run_once(cfg):
     # По флагу из .env очищаем выходную папку перед запуском
     if getattr(cfg, "clean_output_on_start", False):
         try:
@@ -74,15 +73,42 @@ def main():
                 )
                 verdict["detections"].extend(img_dets)
 
-                # Загружаем покрытые изображения в MinIO
+                # Загружаем покрытые изображения в MinIO и собираем новые ссылки
+                uploaded_object_keys = []
+                seen_paths = set()
                 for det in img_dets:
                     out_path = det.get("output_path")
                     if not out_path:
                         continue
-                    filename = os.path.basename(out_path)
-                    object_name = f"images/covered/{ad_id}/{filename}"
-                    upload_file(minio_client, cfg.minio.client_bucket, out_path, object_name)
+                    # Загружаем файл ровно один раз на уникальный out_path
+                    if out_path not in seen_paths:
+                        seen_paths.add(out_path)
+                        filename = os.path.basename(out_path)
+                        object_name = f"images/covered/{ad_id}/{filename}"
+                        upload_file(minio_client, cfg.minio.client_bucket, out_path, object_name)
+                        uploaded_object_keys.append(object_name)
+                    else:
+                        # Вычисляем object_name по существующему пути
+                        filename = os.path.basename(out_path)
+                        object_name = f"images/covered/{ad_id}/{filename}"
+                    # Проставляем object_key всем детекциям
                     det["object_key"] = object_name
+
+                # Формируем публичные или s3-ссылки и заменяем их в advertisement_images
+                if uploaded_object_keys:
+                    if cfg.minio.client_public_access:
+                        new_urls = [
+                            build_object_url(cfg.minio, cfg.minio.client_bucket, key)
+                            for key in uploaded_object_keys
+                        ]
+                    else:
+                        # Для приватных бакетов сохраняем canonical s3-ссылку
+                        new_urls = [f"s3://{cfg.minio.client_bucket}/{key}" for key in uploaded_object_keys]
+
+                    try:
+                        replace_advertisement_images(conn, ad_id, new_urls)
+                    except Exception as e:
+                        print(f"[DB][ERROR] Failed to replace images for ad {ad_id}: {e}")
 
             # Итог и сохранение в наши таблицы
             if verdict["detections"]:
@@ -123,6 +149,43 @@ def main():
                 json.dump(verdict, f, ensure_ascii=False, indent=2)
 
     print("=== BATCH MODERATION DONE ===")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Ad moderation runner")
+    parser.add_argument(
+        "-i",
+        "--interval-minutes",
+        dest="interval_minutes",
+        type=int,
+        default=None,  # None позволит отличить "не задано" от 0 в .env
+        help="Периодичность запуска в минутах. 0 — однократный запуск.",
+    )
+    args = parser.parse_args()
+
+    cfg = load_config()
+
+    # Приоритет: CLI (-i) > .env (SCHEDULER_INTERVAL_MINUTES) > 0 по умолчанию
+    interval_minutes = (
+        args.interval_minutes
+        if args.interval_minutes is not None
+        else getattr(cfg, "scheduler_interval_minutes", 0)
+    )
+
+    if interval_minutes and interval_minutes > 0:
+        interval_sec = interval_minutes * 60
+        print(f"[SCHEDULER] Запуск в цикле каждые {interval_minutes} мин. Нажмите Ctrl+C для остановки.")
+        try:
+            while True:
+                start_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+                print(f"[SCHEDULER] Старт задачи: {start_ts}")
+                run_once(cfg)
+                print(f"[SCHEDULER] Сон {interval_minutes} мин...")
+                time.sleep(interval_sec)
+        except KeyboardInterrupt:
+            print("[SCHEDULER] Остановка по запросу пользователя (Ctrl+C)")
+    else:
+        run_once(cfg)
 
 
 if __name__ == "__main__":

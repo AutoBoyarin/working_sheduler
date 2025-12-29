@@ -54,9 +54,22 @@ def get_presigned_url(client: Minio, bucket: str, object_name: str, expires: dt.
     return client.presigned_get_object(bucket, object_name, expires=seconds)
 
 
+def build_object_url(cfg: MinioConfig, bucket: str, object_name: str) -> str:
+    """Строит HTTP(S) URL вида https://host/bucket/object.
+
+    Использует internal_url из конфига (если у клиента включён public access,
+    то объекты будут доступны по этому адресу).
+    """
+    parsed = urlparse(cfg.internal_url)
+    scheme = parsed.scheme or "http"
+    host = parsed.netloc or parsed.path
+    return f"{scheme}://{host}/{bucket}/{object_name}"
+
+
 __all__ = [
     "_make_client",
     "ensure_bucket",
     "upload_file",
     "get_presigned_url",
+    "build_object_url",
 ]
